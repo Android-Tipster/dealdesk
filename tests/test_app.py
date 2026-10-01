@@ -51,3 +51,9 @@ def test_mock_pay_page_marks_paid_via_reread(tmp_path):
     assert c.get(d["payer_url"]).status_code == 200
     c.post(d["payer_url"])
     assert c.get(f"/api/deals/{d['id']}").json()["stage"] == "paid"
+
+
+def test_media_kit_renders_rates_and_flags_mock(tmp_path):
+    c, _ = client(tmp_path)
+    r = c.get("/media-kit")
+    assert r.status_code == 200 and "$450" in r.text and "Sample data" in r.text

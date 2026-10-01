@@ -32,6 +32,15 @@ def check_paypal(cfg) -> None:
     paid = c.record_payment(ref.id, 1.00, "USD")
     print(f"paypal: recorded payment, status={paid.status}")
     assert paid.status in ("PAID", "MARKED_AS_PAID"), paid.status
+    second = c.create_and_send(number=f"DD-VERIFY-{__import__('time').strftime('%H%M%S')}-B", invoicer_email=None,
+                               invoicer_name="Deal Desk Verify", recipient_email=recipient, recipient_name="Verify Buyer",
+                               item_name="Verification placement", item_description="Smoke test", amount=1.00,
+                               currency="USD", note="Smoke test, ignore.", terms_days=7)
+    c.remind(second.id, "Smoke test reminder, ignore.")
+    print(f"paypal: reminded {second.id}")
+    cancelled = c.cancel(second.id, "Smoke test, ignore.")
+    print(f"paypal: cancelled, status={cancelled.status}")
+    assert cancelled.status == "CANCELLED", cancelled.status
     print("paypal: OK")
 
 

@@ -183,6 +183,45 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
                 "audience_tags": [asdict(t) for t in desk.taste.audience_tags()[:12]],
                 "prospects": [asdict(b) for b in desk.taste.prospects(known, 12)]}
 
+    @app.get("/media-kit", response_class=HTMLResponse)
+    def media_kit():
+        """A one-page, printable media kit built from the Qloo taste profile."""
+        from html import escape as e
+        p = desk.policy
+        mock = desk.taste.api.mode != "qloo"
+        tags = desk.taste.audience_tags()[:10]
+        brands = desk.taste.audience_brands()[:8]
+        top = max([t.affinity for t in tags] or [1]) or 1
+        tag_rows = "".join(f'<div class="t"><span>{e(t.name)}</span><i style="width:{100 * t.affinity / top:.0f}%"></i></div>' for t in tags)
+        brand_list = "".join(f"<li>{e(b.name)}</li>" for b in brands)
+        rates = "".join(
+            f"<tr><td>{e(v.label)}</td><td>${v.target:,.0f}</td>"
+            f"<td>{'+$%s for a followed link' % format(v.followed_link_surcharge, ',.0f') if v.followed_link_surcharge and p.followed_links_allowed else ''}</td></tr>"
+            for v in p.products.values())
+        water = '<div class="mock">Sample data: connect a Qloo key for the real taste profile</div>' if mock else ""
+        return f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>{e(p.channel_name)} media kit</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{{font:15px/1.5 Inter,system-ui,sans-serif;color:#1b1d22;background:#f6f5f2;margin:0}}
+.page{{max-width:760px;margin:32px auto;background:#fff;border:1px solid #e6e3dc;border-radius:16px;padding:40px 44px}}
+h1{{margin:0;font-size:30px;letter-spacing:-.02em}} h2{{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#6b7080;margin:30px 0 10px}}
+.sub{{color:#6b7080}} .t{{display:grid;grid-template-columns:180px 1fr;align-items:center;gap:12px;margin:6px 0}}
+.t i{{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#2f5bea,#11845b)}}
+ul{{columns:2;padding-left:18px;margin:0}} table{{width:100%;border-collapse:collapse}} td{{padding:9px 0;border-bottom:1px solid #eee}}
+td:nth-child(2){{font-weight:700;text-align:right;padding-right:16px}} td:nth-child(3){{color:#6b7080;font-size:13px}}
+.mock{{background:#fdf1dc;color:#b26a00;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:18px}}
+footer{{margin-top:30px;color:#6b7080;font-size:12.5px}} @media print{{body{{background:#fff}}.page{{border:0;margin:0}}}}
+@media (max-width:640px){{.page{{margin:0;border-radius:0;padding:24px 16px}}.t{{grid-template-columns:120px 1fr}}ul{{columns:1}}}}
+</style><div class=page>{water}
+<h1>{e(p.channel_name)}</h1><div class=sub>{e(p.creator_name)} · <a href="{e(p.channel_url)}">{e(p.channel_url)}</a></div>
+<p>{e(p.audience)}</p>
+<h2>What this audience loves</h2>{tag_rows or '<p class=sub>No taste data.</p>'}
+<h2>Brands this audience over-indexes on</h2><ul>{brand_list}</ul>
+<h2>Formats and rates</h2><table>{rates}</table>
+<h2>How it works</h2><p>Every sponsorship is labelled as sponsored. Billing is by PayPal invoice, due within {p.invoice_terms_days} days, and work starts once it is paid. Not accepted: {e(", ".join(p.blocked_categories))}.</p>
+<footer>{'Sample taste data for demonstration.' if mock else 'Audience taste profile by Qloo, built from what this audience talks about.'}</footer></div></html>"""
+
     @app.post("/api/samples")
     def samples():
         out = []
