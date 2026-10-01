@@ -150,7 +150,8 @@ def test_accept_below_floor_never_invoices(tmp_path):
     desk = make_desk(tmp_path, llm)
     d = desk.ingest("dana@framewise.io", "Sponsorship", "Hi")
     d = desk.on_reply(d.id, "We accept at 200")
-    assert d.stage == "needs_human" and d.invoice_id is None
+    # "accept at a lower number" is a counteroffer: one concession, no invoice
+    assert d.stage == "negotiating" and d.quote == 400 and d.invoice_id is None
     assert desk.paypal.invoices == {}
 
 
@@ -214,7 +215,8 @@ def test_paypal_client_builds_expected_requests():
     create = next(s for s in seen if s[1] == "/v2/invoicing/invoices" and s[0] == "POST")[2]
     assert create["items"][0]["unit_amount"] == {"currency_code": "USD", "value": "400.00"}
     assert create["primary_recipients"][0]["billing_info"]["email_address"] == "ap@x.io"
-    assert create["detail"]["payment_term"]["term_type"] == "DUE_ON_RECEIPT"
+    assert create["detail"]["payment_term"]["term_type"] == "DUE_ON_DATE_SPECIFIED"
+    assert create["detail"]["payment_term"]["due_date"]
 
 
 def test_weighted_overlap_and_score():
@@ -343,3 +345,104 @@ def test_withdrawal_after_invoice_cancels_it(tmp_path):
                                       billing_name=None, question=None, summary="Budget pulled"))
     d = desk.on_reply(d.id, "Sorry, budget got pulled")
     assert d.stage == "declined" and desk.paypal.invoices[d.invoice_id]["status"] == "CANCELLED"
+
+
+
+# ---------------------------------------------------------------- review regressions (2026-10-02)
+def _reply(position, **kw):
+    base = dict(position=position, counter_usd=None, accepted_usd=None, billing_email=None,
+                billing_name=None, question=None, summary=position)
+    base.update(kw)
+    return ReplyRead(**base)
+
+
+def test_second_accept_never_bills_twice(tmp_path):
+    desk, d = _invoiced(tmp_path)
+    desk.llm.replies.append(_reply("accepts", accepted_usd=450))
+    d = desk.on_reply(d.id, "Confirming $450, thanks")
+    assert d.stage == "invoiced" and len(desk.paypal.invoices) == 1
+
+
+def test_invoice_endpoint_is_idempotent(tmp_path):
+    desk, d = _invoiced(tmp_path)
+    desk.invoice(desk.store.get(d.id))
+    desk.invoice(desk.store.get(d.id))
+    assert len(desk.paypal.invoices) == 1
+
+
+def test_thank_you_after_payment_does_not_rebill_or_unpay(tmp_path):
+    desk, d = _invoiced(tmp_path)
+    desk.paypal.record_payment(d.invoice_id, 450, "USD")
+    desk.poll_invoices()
+    for r in (_reply("accepts", accepted_usd=450), _reply("declines")):
+        desk.llm.replies.append(r)
+        d = desk.on_reply(d.id, "thanks")
+        assert d.stage == "paid" and len(desk.paypal.invoices) == 1
+
+
+def test_draft_failure_after_invoice_keeps_the_invoice(tmp_path):
+    class Boom(FakeLLM):
+        def draft(self, instruction, facts):
+            if "invoice for that amount" in instruction:
+                raise RuntimeError("model overloaded")
+            return super().draft(instruction, facts)
+    llm = Boom(inquiry(), replies=[_reply("accepts", accepted_usd=450)])
+    desk2 = make_desk(tmp_path, llm)
+    d = desk2.ingest("dana@framewise.io", "Sponsorship", "Hi")
+    d = desk2.on_reply(d.id, "Deal")
+    assert d.stage == "invoiced" and d.invoice_id and len(desk2.paypal.invoices) == 1
+    assert desk2.store.get(d.id).invoice_id == d.invoice_id
+
+
+def test_late_payment_after_escalation_is_still_recorded(tmp_path):
+    import time
+    desk, d = _invoiced(tmp_path)
+    t0 = time.time()
+    desk.follow_up(t0 + 8 * 86400)
+    desk.follow_up(t0 + 15 * 86400)
+    assert desk.store.get(d.id).stage == "needs_human"
+    desk.paypal.record_payment(d.invoice_id, 450, "USD")
+    assert desk.poll_invoices() and desk.store.get(d.id).stage == "paid"
+
+
+def test_followed_link_requested_mid_negotiation_is_priced(tmp_path):
+    llm = FakeLLM(inquiry(), replies=[_reply("accepts", accepted_usd=450, wants_followed_link=True)])
+    desk = make_desk(tmp_path, llm)
+    d = desk.ingest("dana@framewise.io", "Sponsorship", "Hi")
+    d = desk.on_reply(d.id, "Deal, but we need a dofollow link")
+    assert d.wants_followed and d.quote == 600 and d.stage == "negotiating" and d.invoice_id is None
+
+
+def test_marked_as_paid_counts_as_paid(tmp_path):
+    desk, d = _invoiced(tmp_path)
+    desk.paypal.invoices[d.invoice_id]["status"] = "MARKED_AS_PAID"
+    assert desk.mark_paid(d.invoice_id, "webhook").stage == "paid"
+
+
+def test_payment_term_matches_promise():
+    import datetime
+    from dealdesk.paypal import payment_term
+    assert payment_term(30) == {"term_type": "NET_30"}
+    assert payment_term(0) == {"term_type": "DUE_ON_RECEIPT"}
+    assert payment_term(7, datetime.date(2026, 10, 2)) == {"term_type": "DUE_ON_DATE_SPECIFIED", "due_date": "2026-10-09"}
+
+
+
+def test_fit_falls_back_to_brand_rank_without_tag_data():
+    brands = [Entity("b1", "Acme", .9), Entity("b2", "Other", .5), Entity("b3", "Third", .2)]
+    f = score_fit(brand_name="Acme", brand=Entity("b1", "Acme"), audience_tags=[], brand_tags=[],
+                  audience_brands=brands, source="qloo")
+    assert f.score == 100 and f.verdict == "strong" and "no tag data" in f.note
+    g = score_fit(brand_name="Nope", brand=Entity("zz", "Nope"), audience_tags=[], brand_tags=[],
+                  audience_brands=brands, source="qloo")
+    assert g.verdict == "unknown" and g.score == 0
+
+
+def test_tag_endpoint_failure_does_not_break_fit():
+    from dealdesk.taste import QlooError
+    class NoTags(MockTaste):
+        mode = "qloo"
+        def tags(self, seed_ids, take=30):
+            raise QlooError("403 unsupported type")
+    f = TasteProfile(NoTags(), ["DaVinci Resolve"]).fit("Motion Array")
+    assert f.verdict in ("strong", "plausible", "weak", "unknown")

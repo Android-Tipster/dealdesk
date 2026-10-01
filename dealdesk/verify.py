@@ -56,9 +56,16 @@ def check_qloo(cfg) -> None:
         if e:
             seeds.append(e.id)
     assert seeds, "search returned nothing for any seed"
-    tags = q.tags(seeds, 10)
-    print(f"qloo: {len(tags)} tags, first: {[t.name for t in tags[:5]]}")
-    assert tags and tags[0].name, "tag insights empty or unnamed"
+    try:
+        tags = q.tags(seeds, 10)
+    except Exception as e:  # noqa: BLE001
+        tags = []
+        print(f"qloo: tag insights FAILED ({e})")
+    if tags and tags[0].name:
+        print(f"qloo: {len(tags)} tags, first: {[t.name for t in tags[:5]]}")
+    else:
+        print("qloo: NO TAG DATA. Fit will run in rank-only fallback and the media kit 'loves' list will be empty. "
+              "Check the Qloo docs for the supported way to get tag affinities.")
     brands = q.brands(seeds, 10)
     print(f"qloo: {len(brands)} brands, first: {[(b.name, b.affinity) for b in brands[:5]]}")
     assert brands and brands[0].name, "brand insights empty or unnamed"

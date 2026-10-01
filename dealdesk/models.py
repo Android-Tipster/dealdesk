@@ -68,6 +68,7 @@ class ReplyRead(BaseModel):
     billing_email: Optional[str] = Field(description="An email address they ask the invoice to go to, if they give one.")
     billing_name: Optional[str] = Field(description="Legal or company name for the invoice, if given.")
     question: Optional[str] = Field(description="Their question, when position is 'asks_question'.")
+    wants_followed_link: Optional[bool] = Field(default=None, description="True only if this reply newly asks for a dofollow / followed link.")
     summary: str
 
 

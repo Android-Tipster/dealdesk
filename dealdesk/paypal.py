@@ -50,6 +50,18 @@ class PayPalError(RuntimeError):
     pass
 
 
+def payment_term(days: int, today=None) -> dict[str, str]:
+    """PayPal accepts NET_10/15/30/45/60/90; any other term is sent as an
+    explicit due date so the invoice says what the emails promise."""
+    import datetime
+    if days <= 0:
+        return {"term_type": "DUE_ON_RECEIPT"}
+    if days in (10, 15, 30, 45, 60, 90):
+        return {"term_type": f"NET_{days}"}
+    due = (today or datetime.date.today()) + datetime.timedelta(days=days)
+    return {"term_type": "DUE_ON_DATE_SPECIFIED", "due_date": due.isoformat()}
+
+
 class PayPalClient:
     mode = "sandbox"
 
@@ -101,7 +113,7 @@ class PayPalClient:
                 "invoice_number": number,
                 "currency_code": currency,
                 "note": note,
-                "payment_term": {"term_type": f"NET_{terms_days}" if terms_days in (10, 15, 30, 45, 60, 90) else "DUE_ON_RECEIPT"},
+                "payment_term": payment_term(terms_days),
             },
             "invoicer": {"name": {"given_name": given or invoicer_name, "surname": surname or ""}},
             "primary_recipients": [{"billing_info": {"email_address": recipient_email,

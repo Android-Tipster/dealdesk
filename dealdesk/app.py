@@ -46,6 +46,10 @@ def build_desk(cfg: dict[str, Any] | None = None, llm=None, db: str | None = Non
         key = (cfg.get("anthropic") or {}).get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
         llm = ClaudeLLM(key) if key else None
         cassette = os.environ.get("DEALDESK_CASSETTE")
+        if not key and not cassette and (ROOT / "demo" / "cassette.json").exists():
+            # No key: run the recorded demo instead of failing, and say so.
+            cassette = str(ROOT / "demo" / "cassette.json")
+            print("No ANTHROPIC_API_KEY set: running replay mode on the recorded sample flows.")
         if cassette:
             llm = ReplayLLM(llm, cassette, int(os.environ.get("DEALDESK_DAILY_LIVE_CALLS", "60")),
                             record=os.environ.get("DEALDESK_RECORD") == "1")
@@ -88,6 +92,12 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
     app.state.desk = desk
 
     from fastapi.responses import JSONResponse
+
+    from .taste import QlooError
+
+    @app.exception_handler(QlooError)
+    async def _qloo(_, exc: QlooError):
+        return JSONResponse(status_code=503, content={"detail": f"Taste data unavailable right now: {exc}"})
 
     @app.exception_handler(BudgetExceeded)
     async def _budget(_, exc: BudgetExceeded):
@@ -262,7 +272,9 @@ footer{{margin-top:30px;color:#6b7080;font-size:12.5px}} @media print{{body{{bac
     def mock_pay(inv: str):
         if not isinstance(desk.paypal, MockPayPal):
             raise HTTPException(404)
-        i = desk.paypal.invoices[inv]
+        i = desk.paypal.invoices.get(inv)
+        if not i:
+            raise HTTPException(404, "no such invoice")
         desk.paypal.record_payment(inv, i["amount"], i["currency"])
         # Deliver the same event a real PayPal webhook would.
         desk.mark_paid(inv, "webhook")

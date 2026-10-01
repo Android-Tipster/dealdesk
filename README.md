@@ -44,7 +44,7 @@ Every step is written to the deal's timeline, so the drawer in the UI is an audi
 | Rail | Where | Test |
 |---|---|---|
 | Never invoice below the floor | `policy.may_invoice` | `test_accept_below_floor_never_invoices` |
-| At most one concession, one step | `policy.next_move` | `test_one_step_concession_never_below_floor` |
+| At most one concession of one step; after it, any counter at or above the floor is accepted, anything below is held | `policy.next_move` | `test_one_step_concession_never_below_floor` |
 | A draft that names any unauthorised dollar amount cannot be sent; one automatic retry with the problem fed back | `llm.check_draft`, `desk._draft` | `test_bad_draft_is_retried_with_feedback`, `test_persistently_bad_draft_cannot_be_approved` |
 | A "paid" webhook is never trusted on its own; the invoice is re-read from PayPal | `desk.mark_paid` | `test_forged_paid_webhook_is_not_trusted` |
 | Webhook signatures verified with PayPal's verify-webhook-signature API | `PayPalClient.verify_webhook` | |
@@ -52,8 +52,12 @@ Every step is written to the deal's timeline, so the drawer in the UI is an audi
 | Mock taste data never reaches a counterparty's inbox | `desk._facts` | `test_mock_taste_never_reaches_a_counterparty` |
 | An unpaid invoice gets exactly one PayPal reminder after its terms, then goes to the creator; a quiet quote gets exactly one nudge | `desk.follow_up` | `test_unpaid_invoice_gets_exactly_one_reminder_then_escalates`, `test_quiet_quote_gets_one_nudge_only` |
 | A brand that withdraws after being invoiced has its PayPal invoice cancelled | `desk.on_reply` | `test_withdrawal_after_invoice_cancels_it` |
+| A reply after agreement, invoicing or payment never re-prices, re-invoices or un-records money; an "accept" at a lower number is treated as a counteroffer | `desk.on_reply`, `desk.invoice` | `test_second_accept_never_bills_twice`, `test_invoice_endpoint_is_idempotent`, `test_thank_you_after_payment_does_not_rebill_or_unpay` |
+| The invoice ID is stored the moment PayPal accepts it, before anything else can fail | `desk.invoice` | `test_draft_failure_after_invoice_keeps_the_invoice` |
 
-The last two came from live runs, not from planning. On one run Claude flagged "Hello," as evidence of a template and the screen threw out a paying brand. On another, a draft told a brand about its audience's tastes using placeholder data.
+Two rails came from live runs. On one, Claude flagged "Hello," as evidence of a template and the screen threw out a paying brand. On another, a draft told a brand about its audience's tastes using placeholder data.
+
+The last two rows came from an independent review of the code, which found that a second "yes" from a brand could bill it twice.
 
 ## PayPal
 
@@ -78,12 +82,25 @@ The deploy needs no keys: without one it runs in replay mode (below).
 
 ## Run it
 
-```bash
-python -m venv .venv && .venv/Scripts/activate      # or source .venv/bin/activate
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...
-python -m dealdesk                                   # http://127.0.0.1:8040
+No API key is needed to try it. Without one, the app replays recorded model output for the sample inbox and every one-click reply (see "The public demo" below).
+
+Windows (PowerShell or cmd):
+
 ```
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m dealdesk
+```
+
+macOS / Linux:
+
+```
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m dealdesk
+```
+
+Then open http://127.0.0.1:8040. To run the live model on your own emails, set `ANTHROPIC_API_KEY` first (`$env:ANTHROPIC_API_KEY="sk-ant-..."` in PowerShell, `export ANTHROPIC_API_KEY=sk-ant-...` in bash).
 
 Click **Load sample inbox** to run the agent on six synthetic emails: a direct brand, a newsletter booking with a low budget, a "Dear Webmaster" blast, a casino, an agency hiding its client, and a review request that wants a followed link.
 
@@ -97,7 +114,7 @@ Your own rate card goes in `config/policy.json` (start from `config/policy.examp
 
 ## The public demo
 
-The hosted version runs in replay mode (`index.py`). Every sample email and every one-click reply in the drawer was recorded once through the live model (`scripts/record_cassette.py`), so those paths are instant and free. Anything new, such as an email you paste yourself, goes to the live model under a small daily cap, and past the cap the API answers 429 with a plain message instead of spending.
+The hosted version runs in replay mode (`index.py`). Every sample email and every one-click reply in the drawer was recorded once through the live model (`scripts/record_cassette.py`), so those paths are instant and free. Anything new, such as an email you paste yourself, goes to the live model under a small daily cap, and past the cap the API answers 429 with a plain message instead of spending. The cap is counted per server process, so on a serverless host it bounds each instance rather than the whole deployment.
 
 ## Tests
 
@@ -105,7 +122,7 @@ The hosted version runs in replay mode (`index.py`). Every sample email and ever
 python -m pytest -q
 ```
 
-35 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, the taste maths, the HTTP API, and the public demo's spending cap. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
+44 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, the taste maths, the HTTP API, and the public demo's spending cap. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
 
 `scripts_eval.py` runs the samples through the live model several times and reports agreement with the expected outcome.
 

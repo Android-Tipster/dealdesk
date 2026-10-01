@@ -72,6 +72,12 @@ for d in desk.store.all():
 print("follow-ups:", desk.follow_up(_t.time() + 8 * 86400))
 desk = fresh()
 print("follow-ups without approving:", desk.follow_up(_t.time() + 8 * 86400))
+# Counter, approve the concession, then a quiet week: the negotiating nudge.
+for brand in brands:
+    desk = fresh()
+    d = preset(desk, by_brand(desk, brand), "Counter")
+    desk.approve_draft(d.id)
+    print(f"{brand} counter + quiet week:", desk.follow_up(_t.time() + 8 * 86400))
 
 desk = fresh()
 for b in desk.taste.prospects({x.brand for x in desk.store.all() if x.brand}, 12):

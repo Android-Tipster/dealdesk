@@ -161,9 +161,18 @@ def score_fit(*, brand_name: str, brand: Entity | None, audience_tags: list[Enti
               audience_brands: list[Entity], source: str) -> Fit:
     if brand is None:
         return Fit(brand_name, None, 0, "unknown", note="brand not found in the taste graph", source=source)
-    sim, shared = weighted_overlap(audience_tags, brand_tags)
     rank = next((i + 1 for i, e in enumerate(audience_brands)
                  if e.id == brand.id or e.name.lower() == brand.name.lower()), None)
+    if not audience_tags or not brand_tags:
+        # No tag data (the endpoint may not offer it): score on brand affinity rank alone.
+        if rank is None:
+            return Fit(brand_name, brand.id, 0, "unknown", [], None,
+                       "no tag data, and not among the audience's top brands", source)
+        score = int(round(100 * (1 - (rank - 1) / max(len(audience_brands), 1))))
+        verdict = "strong" if score >= 65 else "plausible" if score >= 40 else "weak"
+        return Fit(brand_name, brand.id, score, verdict, [], rank,
+                   f"ranks #{rank} among brands this audience over-indexes on (scored on rank; no tag data)", source)
+    sim, shared = weighted_overlap(audience_tags, brand_tags)
     # Tag similarity carries the score; appearing among the audience's own
     # top brands is strong direct evidence and adds up to 30 points.
     rank_bonus = 0.0 if rank is None else 30.0 * (1 - (rank - 1) / max(len(audience_brands), 1))
@@ -194,9 +203,15 @@ class TasteProfile:
             self._seed_ids = ids
         return self._seed_ids
 
+    def _safe_tags(self, ids: list[str]) -> list[Entity]:
+        try:
+            return self.api.tags(ids) if ids else []
+        except QlooError:
+            return []   # tag insights unavailable: fit falls back to brand rank
+
     def audience_tags(self) -> list[Entity]:
         if self._tags is None:
-            self._tags = self.api.tags(self.seed_ids()) if self.seed_ids() else []
+            self._tags = self._safe_tags(self.seed_ids())
         return self._tags
 
     def audience_brands(self) -> list[Entity]:
@@ -206,7 +221,7 @@ class TasteProfile:
 
     def fit(self, brand_name: str) -> Fit:
         brand = self.api.resolve(brand_name, "urn:entity:brand")
-        brand_tags = self.api.tags([brand.id]) if brand else []
+        brand_tags = self._safe_tags([brand.id]) if brand else []
         return score_fit(brand_name=brand_name, brand=brand, audience_tags=self.audience_tags(),
                          brand_tags=brand_tags, audience_brands=self.audience_brands(), source=self.api.mode)
 

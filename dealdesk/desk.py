@@ -24,6 +24,7 @@ from .paypal import InvoiceAPI, PayPalError
 from .store import Deal, Store
 from .taste import TasteProfile
 
+PAID_STATES = {"PAID", "MARKED_AS_PAID"}
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
@@ -139,44 +140,87 @@ class Desk:
             d.billing_name = r.billing_name
         product = self._product(d)
 
+        # Money already received: a reply never changes what was paid.
+        if d.stage in (Stage.paid.value, Stage.delivered.value):
+            note = ("Brand asked to withdraw after paying: refund or not is your call"
+                    if r.position == "declines" else "Reply after payment: no pricing action taken")
+            d.log("attention", note)
+            return self.store.save(d)
+
+        # Already agreed or invoiced: price talk never re-opens or re-bills.
+        if d.stage in (Stage.agreed.value, Stage.invoiced.value):
+            if r.position == "declines":
+                self._withdraw(d)
+            elif r.position == "asks_question":
+                self._draft(d, f"Answer their question if the facts allow, otherwise say you will check. "
+                               f"Question: {r.question}", {d.agreed_price} if d.agreed_price else set())
+            else:
+                d.log("attention", f"Reply after agreement at ${d.agreed_price:.0f}: no new invoice, no price change")
+            return self.store.save(d)
+
         if r.position == "declines":
-            if d.invoice_id and d.invoice_status not in ("PAID", "CANCELLED"):
-                try:
-                    ref = self.paypal.cancel(d.invoice_id, "Cancelled at your request. No payment is due.")
-                    d.invoice_status = ref.status
-                    d.log("invoice", f"Cancelled PayPal invoice {d.invoice_number}: brand withdrew")
-                except PayPalError as e:
-                    d.log("invoice", f"Could not cancel invoice: {e}")
             d.stage = Stage.declined.value
             self._draft(d, "Thank them briefly and leave the door open. No price.", set())
-        elif r.position == "asks_question" or product is None or d.quote is None:
+            return self.store.save(d)
+        if r.position == "asks_question" or product is None or d.quote is None:
             d.stage = Stage.needs_human.value
             self._draft(d, f"Answer their question if the facts allow, otherwise say you will check. Question: {r.question}",
                         {d.quote} if d.quote else set())
-        elif r.position == "accepts":
+            return self.store.save(d)
+
+        # A followed link asked for mid-negotiation is priced, not given away.
+        if (r.wants_followed_link and not d.wants_followed and self.policy.followed_links_allowed
+                and product.followed_link_surcharge):
+            d.wants_followed = True
+            d.quote = d.quote + product.followed_link_surcharge
+            d.stage = Stage.negotiating.value
+            d.log("negotiate", f"Followed link requested: re-quoted at ${d.quote:.0f} "
+                               f"(+${product.followed_link_surcharge:.0f})")
+            self._draft(d, f"Say a followed link is available for ${product.followed_link_surcharge:.0f} more, so the "
+                           f"total is ${d.quote:.0f}, and ask them to confirm in writing.",
+                        {d.quote, product.followed_link_surcharge})
+            return self.store.save(d)
+
+        counter = r.counter_usd
+        if r.position == "accepts":
             price = r.accepted_usd if r.accepted_usd is not None else d.quote
-            self._agree(d, product, price)
-        elif r.position == "counters":
-            mv = pol.next_move(product=product, current_quote=d.quote, counter=r.counter_usd,
-                               concessions_used=d.concessions_used, wants_followed=d.wants_followed, policy=self.policy)
-            d.log("negotiate", f"Policy move: {mv.action} ({mv.note})", counter=r.counter_usd)
-            if mv.action == "accept":
-                self._agree(d, product, mv.price)
-            elif mv.action == "concede":
-                d.concessions_used += 1
-                d.quote = mv.price
-                d.stage = Stage.negotiating.value
-                self._draft(d, f"Meet them partway: offer ${mv.price:.0f}, say this is the best available for this "
-                               "format, and ask them to confirm in writing.", {mv.price})
-            elif mv.action == "hold":
-                d.stage = Stage.negotiating.value
-                self._draft(d, f"Politely hold at ${d.quote:.0f}. Do not offer any other price.", {d.quote})
-            else:
-                d.stage = Stage.declined.value
-                self._draft(d, "Thank them and say the budget does not work for this format. No price.", set())
-        else:
+            if price >= d.quote:
+                self._agree(d, product, d.quote)
+                return self.store.save(d)
+            counter = price   # "we accept at a lower number" is a counteroffer
+        elif r.position != "counters":
             d.stage = Stage.needs_human.value
+            return self.store.save(d)
+
+        mv = pol.next_move(product=product, current_quote=d.quote, counter=counter,
+                           concessions_used=d.concessions_used, wants_followed=d.wants_followed, policy=self.policy)
+        d.log("negotiate", f"Policy move: {mv.action} ({mv.note})", counter=counter)
+        if mv.action == "accept":
+            self._agree(d, product, mv.price)
+        elif mv.action == "concede":
+            d.concessions_used += 1
+            d.quote = mv.price
+            d.stage = Stage.negotiating.value
+            self._draft(d, f"Meet them partway: offer ${mv.price:.0f}, say this is the best available for this "
+                           "format, and ask them to confirm in writing.", {mv.price})
+        elif mv.action == "hold":
+            d.stage = Stage.negotiating.value
+            self._draft(d, f"Politely hold at ${d.quote:.0f}. Do not offer any other price.", {d.quote})
+        else:
+            d.stage = Stage.declined.value
+            self._draft(d, "Thank them and say the budget does not work for this format. No price.", set())
         return self.store.save(d)
+
+    def _withdraw(self, d: Deal):
+        if d.invoice_id and d.invoice_status not in PAID_STATES | {"CANCELLED"}:
+            try:
+                ref = self.paypal.cancel(d.invoice_id, "Cancelled at your request. No payment is due.")
+                d.invoice_status = ref.status
+                d.log("invoice", f"Cancelled PayPal invoice {d.invoice_number}: brand withdrew")
+            except PayPalError as e:
+                d.log("invoice", f"Could not cancel invoice: {e}")
+        d.stage = Stage.declined.value
+        self._draft(d, "Thank them briefly, confirm nothing is owed, and leave the door open. No price.", set())
 
     def _agree(self, d: Deal, product: pol.Product, price: float):
         d.agreed_price = price
@@ -193,6 +237,14 @@ class Desk:
 
     # ---------------------------------------------------------------- money
     def invoice(self, d: Deal, save: bool = True) -> Deal:
+        """Send exactly one PayPal invoice for an agreed deal. Idempotent: a
+        second call, a double click or a repeated "yes" never bills twice."""
+        if d.invoice_id and d.invoice_status != "CANCELLED":
+            d.log("invoice", f"Not invoicing again: {d.invoice_number} already exists ({d.invoice_status})")
+            return self.store.save(d) if save else d
+        if d.stage != Stage.agreed.value:
+            d.log("invoice", f"Not invoicing: deal is {d.stage}, not agreed")
+            return self.store.save(d) if save else d
         product = self._product(d)
         ok, why = pol.may_invoice(agreed_price=d.agreed_price, product=product, wants_followed=d.wants_followed,
                                   policy=self.policy, billing_email=d.billing_email) if product else (False, "no product")
@@ -207,7 +259,7 @@ class Desk:
                 item_name=f"{product.label}, {self.policy.channel_name}",
                 item_description=f"{d.summary} Brand: {d.brand or 'n/a'}.",
                 amount=d.agreed_price, currency=self.policy.currency,
-                note=f"Thank you. Work starts once this invoice is paid.", terms_days=self.policy.invoice_terms_days)
+                note="Thank you. Work starts once this invoice is paid.", terms_days=self.policy.invoice_terms_days)
         except PayPalError as e:
             d.stage = Stage.needs_human.value
             d.log("invoice", f"PayPal error: {e}")
@@ -216,8 +268,12 @@ class Desk:
         d.stage = Stage.invoiced.value
         d.log("invoice", f"PayPal invoice {d.invoice_number} ({ref.id}) sent for {d.agreed_price:.2f}, status {ref.status}",
               mode=self.paypal.mode)
-        self._draft(d, f"Confirm the deal at ${d.agreed_price:.0f} and say a PayPal invoice for that amount is on its way "
-                       "from PayPal. Work starts as soon as it is paid.", {d.agreed_price})
+        self.store.save(d)   # the invoice exists at PayPal now; record it before anything else can fail
+        try:
+            self._draft(d, f"Confirm the deal at ${d.agreed_price:.0f} and say a PayPal invoice for that amount is on its "
+                           "way from PayPal. Work starts as soon as it is paid.", {d.agreed_price})
+        except Exception as e:  # a failed email draft must never lose or repeat the invoice
+            d.log("draft", f"Confirmation draft failed ({type(e).__name__}); invoice is unaffected")
         return self.store.save(d) if save else d
 
     def mark_paid(self, invoice_id: str, source: str) -> Deal | None:
@@ -226,21 +282,28 @@ class Desk:
             return d
         ref = self.paypal.get(invoice_id)   # never trust the notification alone
         d.invoice_status = ref.status
-        if ref.status != "PAID":
+        if ref.status not in PAID_STATES:
             d.log("payment", f"{source} said paid but PayPal reports {ref.status}; not marking paid")
             return self.store.save(d)
         d.stage = Stage.paid.value
-        d.log("payment", f"Invoice {d.invoice_number} PAID (confirmed by GET after {source})")
-        self._draft(d, f"Thank them for the payment of ${d.agreed_price:.0f} and say when the placement will go live "
-                       "(within 3 business days). Ask for any final brief, link or tracking URL.", {d.agreed_price})
+        d.log("payment", f"Invoice {d.invoice_number} {ref.status} (confirmed by GET after {source})")
+        self.store.save(d)
+        try:
+            self._draft(d, f"Thank them for the payment of ${d.agreed_price:.0f} and say when the placement will go live "
+                           "(within 3 business days). Ask for any final brief, link or tracking URL.", {d.agreed_price})
+        except Exception as e:
+            d.log("draft", f"Receipt draft failed ({type(e).__name__}); payment is recorded")
         return self.store.save(d)
 
     def poll_invoices(self) -> list[Deal]:
+        """Polling fallback. Also covers escalated deals: a brand that pays late,
+        after the deal went to the creator, must still be recorded."""
         changed = []
         for d in self.store.all():
-            if d.stage == Stage.invoiced.value and d.invoice_id:
+            if (d.invoice_id and d.stage in (Stage.invoiced.value, Stage.needs_human.value)
+                    and d.invoice_status not in PAID_STATES | {"CANCELLED"}):
                 try:
-                    if self.paypal.get(d.invoice_id).status == "PAID":
+                    if self.paypal.get(d.invoice_id).status in PAID_STATES:
                         changed.append(self.mark_paid(d.invoice_id, "poll"))
                 except PayPalError as e:
                     d.log("payment", f"Poll failed: {e}")
@@ -293,10 +356,15 @@ class Desk:
                     continue
                 if (now - last_us) / day < self.NUDGE_AFTER_DAYS:
                     continue
+                try:
+                    self._draft(d, f"Write a two-sentence follow-up. The offer of ${d.quote:.0f} still stands; ask if "
+                                   "they want to go ahead or if the timing is wrong. No pressure.", {d.quote})
+                except Exception as e:  # one deal's failure must not stop the pass
+                    d.log("follow_up", f"Follow-up draft failed ({type(e).__name__}); will retry next pass")
+                    self.store.save(d)
+                    continue
                 d.nudged = True
                 d.log("follow_up", f"No reply for {(now - last_us) / day:.0f} days: drafted one follow-up")
-                self._draft(d, f"Write a two-sentence follow-up. The offer of ${d.quote:.0f} still stands; ask if they "
-                               "want to go ahead or if the timing is wrong. No pressure.", {d.quote})
                 self.store.save(d)
                 done.append(f"{d.id}:nudge")
         return done
