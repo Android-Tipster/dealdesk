@@ -140,6 +140,13 @@ class Desk:
         product = self._product(d)
 
         if r.position == "declines":
+            if d.invoice_id and d.invoice_status not in ("PAID", "CANCELLED"):
+                try:
+                    ref = self.paypal.cancel(d.invoice_id, "Cancelled at your request. No payment is due.")
+                    d.invoice_status = ref.status
+                    d.log("invoice", f"Cancelled PayPal invoice {d.invoice_number}: brand withdrew")
+                except PayPalError as e:
+                    d.log("invoice", f"Could not cancel invoice: {e}")
             d.stage = Stage.declined.value
             self._draft(d, "Thank them briefly and leave the door open. No price.", set())
         elif r.position == "asks_question" or product is None or d.quote is None:
@@ -239,6 +246,60 @@ class Desk:
                     d.log("payment", f"Poll failed: {e}")
                     self.store.save(d)
         return changed
+
+    # ---------------------------------------------------------------- follow-ups
+    NUDGE_AFTER_DAYS = 4
+
+    @staticmethod
+    def _last(d: Deal, kind: str) -> float | None:
+        ts = [e["t"] for e in d.events if e["kind"] == kind]
+        return max(ts) if ts else None
+
+    def follow_up(self, now: float | None = None) -> list[str]:
+        """One pass over open deals. Safe to run on a schedule.
+
+        In the inbox this was modelled on, 45 of 94 threads went cold, and the
+        ones that paid needed at most one nudge. So: an unpaid invoice gets ONE
+        PayPal reminder once its terms pass and goes to the creator at twice the
+        terms; a quote with no reply gets ONE nudge draft. Never more.
+        """
+        import time as _t
+        now = now or _t.time()
+        day = 86400.0
+        done = []
+        for d in self.store.all():
+            if d.stage == Stage.invoiced.value and d.invoice_id:
+                sent = self._last(d, "invoice") or d.updated
+                age = (now - sent) / day
+                terms = self.policy.invoice_terms_days
+                if age >= 2 * terms and d.reminders >= 1:
+                    d.stage = Stage.needs_human.value
+                    d.log("follow_up", f"Invoice unpaid after {age:.0f} days and one reminder: over to you")
+                elif age >= terms and d.reminders == 0:
+                    try:
+                        self.paypal.remind(d.invoice_id, "A friendly reminder that this invoice is now due. Thank you.")
+                        d.reminders = 1
+                        d.log("follow_up", f"Sent one PayPal reminder for {d.invoice_number} ({age:.0f} days)")
+                    except PayPalError as e:
+                        d.log("follow_up", f"Reminder failed: {e}")
+                else:
+                    continue
+                self.store.save(d)
+                done.append(f"{d.id}:{d.stage}")
+            elif d.stage in (Stage.quoted.value, Stage.negotiating.value) and not d.nudged and not d.draft_body:
+                last_us = self._last(d, "send")
+                last_them = self._last(d, "read")
+                if not last_us or (last_them and last_them > last_us):
+                    continue
+                if (now - last_us) / day < self.NUDGE_AFTER_DAYS:
+                    continue
+                d.nudged = True
+                d.log("follow_up", f"No reply for {(now - last_us) / day:.0f} days: drafted one follow-up")
+                self._draft(d, f"Write a two-sentence follow-up. The offer of ${d.quote:.0f} still stands; ask if they "
+                               "want to go ahead or if the timing is wrong. No pressure.", {d.quote})
+                self.store.save(d)
+                done.append(f"{d.id}:nudge")
+        return done
 
     def deliver(self, deal_id: int, live_url: str) -> Deal:
         d = self.store.get(deal_id)

@@ -44,6 +44,8 @@ class Deal:
     draft_body: str = ""
     draft_problems: list[str] = field(default_factory=list)
     live_url: str | None = None
+    reminders: int = 0
+    nudged: bool = False
     thread: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
 

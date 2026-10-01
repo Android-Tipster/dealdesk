@@ -300,3 +300,46 @@ def test_replay_serves_recorded_output_and_caps_live_calls(tmp_path):
     assert replay.read_inquiry("email one") == a
     with pytest.raises(BudgetExceeded):
         replay.read_inquiry("unseen")
+
+
+def _invoiced(tmp_path):
+    llm = FakeLLM(inquiry(), replies=[ReplyRead(position="accepts", accepted_usd=450, counter_usd=None,
+                  billing_email=None, billing_name=None, question=None, summary="ok")])
+    desk = make_desk(tmp_path, llm)
+    d = desk.ingest("dana@framewise.io", "Sponsorship", "Hi")
+    return desk, desk.on_reply(d.id, "Deal")
+
+
+def test_unpaid_invoice_gets_exactly_one_reminder_then_escalates(tmp_path):
+    import time
+    desk, d = _invoiced(tmp_path)
+    t0 = time.time()
+    assert desk.follow_up(t0 + 2 * 86400) == []                      # inside terms
+    desk.follow_up(t0 + 8 * 86400)                                   # past 7-day terms
+    assert desk.paypal.invoices[d.invoice_id]["reminders"] == 1
+    desk.follow_up(t0 + 10 * 86400)                                  # no second reminder
+    assert desk.paypal.invoices[d.invoice_id]["reminders"] == 1
+    desk.follow_up(t0 + 15 * 86400)                                  # past twice the terms
+    assert desk.store.get(d.id).stage == "needs_human"
+
+
+def test_quiet_quote_gets_one_nudge_only(tmp_path):
+    import time
+    desk = make_desk(tmp_path, FakeLLM(inquiry()))
+    d = desk.ingest("dana@framewise.io", "Sponsorship", "Hi")
+    desk.approve_draft(d.id)
+    t0 = time.time()
+    assert desk.follow_up(t0 + 1 * 86400) == []
+    assert desk.follow_up(t0 + 5 * 86400) == [f"{d.id}:nudge"]
+    d = desk.store.get(d.id)
+    assert d.nudged and d.draft_body and not d.draft_problems
+    desk.approve_draft(d.id)
+    assert desk.follow_up(t0 + 20 * 86400) == []
+
+
+def test_withdrawal_after_invoice_cancels_it(tmp_path):
+    desk, d = _invoiced(tmp_path)
+    desk.llm.replies.append(ReplyRead(position="declines", counter_usd=None, accepted_usd=None, billing_email=None,
+                                      billing_name=None, question=None, summary="Budget pulled"))
+    d = desk.on_reply(d.id, "Sorry, budget got pulled")
+    assert d.stage == "declined" and desk.paypal.invoices[d.invoice_id]["status"] == "CANCELLED"

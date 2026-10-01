@@ -41,6 +41,8 @@ class InvoiceAPI(Protocol):
                         terms_days: int) -> InvoiceRef: ...
     def get(self, invoice_id: str) -> InvoiceRef: ...
     def record_payment(self, invoice_id: str, amount: float, currency: str, method: str = "PAYPAL") -> InvoiceRef: ...
+    def remind(self, invoice_id: str, note: str) -> None: ...
+    def cancel(self, invoice_id: str, note: str) -> InvoiceRef: ...
     def verify_webhook(self, headers: dict[str, str], event: dict[str, Any], webhook_id: str) -> bool: ...
 
 
@@ -128,6 +130,17 @@ class PayPalClient:
                         "payment_date": time.strftime("%Y-%m-%d")})
         return self.get(invoice_id)
 
+    def remind(self, invoice_id, note) -> None:
+        self._req("POST", f"/v2/invoicing/invoices/{invoice_id}/remind",
+                  json={"subject": "Reminder: invoice due", "note": note,
+                        "send_to_invoicer": False, "send_to_recipient": True})
+
+    def cancel(self, invoice_id, note) -> InvoiceRef:
+        self._req("POST", f"/v2/invoicing/invoices/{invoice_id}/cancel",
+                  json={"subject": "Invoice cancelled", "note": note,
+                        "send_to_invoicer": False, "send_to_recipient": True})
+        return self.get(invoice_id)
+
     def verify_webhook(self, headers, event, webhook_id) -> bool:
         h = {k.lower(): v for k, v in headers.items()}
         body = {
@@ -171,6 +184,19 @@ class MockPayPal:
             inv["status"] = "PARTIALLY_PAID"
         else:
             inv["status"] = "PAID"
+        return self.get(invoice_id)
+
+    def remind(self, invoice_id, note) -> None:
+        inv = self.invoices[invoice_id]
+        if inv["status"] not in ("SENT", "UNPAID", "PARTIALLY_PAID"):
+            raise PayPalError(f"cannot remind an invoice in status {inv['status']}")
+        inv["reminders"] = inv.get("reminders", 0) + 1
+
+    def cancel(self, invoice_id, note) -> InvoiceRef:
+        inv = self.invoices[invoice_id]
+        if inv["status"] == "PAID":
+            raise PayPalError("cannot cancel a paid invoice")
+        inv["status"] = "CANCELLED"
         return self.get(invoice_id)
 
     def verify_webhook(self, headers, event, webhook_id) -> bool:

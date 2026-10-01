@@ -62,6 +62,17 @@ for brand in brands:
             d = preset(desk, d, step)
         d = finish(desk, d)
         print(f"{brand:10} {' > '.join(path):18} -> {d.stage}")
+# Follow-up nudges: approve every quote, then run the pass a week ahead,
+# exactly as the "Simulate a quiet week" button does on a fresh sample inbox.
+import time as _t  # noqa: E402
+desk = fresh()
+for d in desk.store.all():
+    if d.draft_body and not d.draft_problems:
+        desk.approve_draft(d.id)
+print("follow-ups:", desk.follow_up(_t.time() + 8 * 86400))
+desk = fresh()
+print("follow-ups without approving:", desk.follow_up(_t.time() + 8 * 86400))
+
 desk = fresh()
 for b in desk.taste.prospects({x.brand for x in desk.store.all() if x.brand}, 12):
     desk.pitch(b.name)

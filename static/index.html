@@ -111,6 +111,7 @@ textarea{min-height:90px;resize:vertical}
     <div class="card">
       <div class="toolbar">
         <h2>Sponsorship pipeline</h2>
+        <button onclick="quietWeek()" title="Runs the follow-up pass as if 8 days had passed: one PayPal reminder per overdue invoice, one nudge per quiet quote">Simulate a quiet week</button>
         <button onclick="poll()">Check payments</button>
         <button onclick="loadSamples()">Load sample inbox</button>
         <button class="primary" onclick="openModal()">New inbound email</button>
@@ -310,6 +311,13 @@ async function reply(){
 async function deliver(){
   const url=$("#liveurl").value.trim(); if(!url) return;
   try{ await api(`/api/deals/${openId}/deliver`,{method:"POST",body:JSON.stringify({url})}); toast("Delivered"); }catch(e){ toast(e.message); }
+  refresh();
+}
+async function quietWeek(){
+  toast("Running follow-ups 8 days ahead...");
+  try{ const r=await api("/api/follow-up?days_ahead=8",{method:"POST"});
+       toast(r.actions.length?`${r.actions.length} follow-up(s): ${r.actions.join(", ")}`:"Nothing needed a follow-up"); }
+  catch(e){ toast(e.message); }
   refresh();
 }
 async function poll(){ const r=await api("/api/poll",{method:"POST"}); toast(r.paid.length?`${r.paid.length} invoice(s) paid`:"No new payments"); refresh(); }

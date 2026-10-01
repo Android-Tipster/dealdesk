@@ -32,6 +32,9 @@ reply from the brand
 INVOICING.INVOICE.PAID webhook (or polling)
   -> code re-reads the invoice from PayPal and only then marks it paid
   -> fulfilment, live URL, receipt
+follow-up pass (scheduled, or "Simulate a quiet week" in the UI)
+  -> overdue invoice: one PayPal reminder, then hand to the creator
+  -> quiet quote: one nudge, never two
 ```
 
 Every step is written to the deal's timeline, so the drawer in the UI is an audit trail of what the agent did and why.
@@ -47,12 +50,14 @@ Every step is written to the deal's timeline, so the drawer in the UI is an audi
 | Webhook signatures verified with PayPal's verify-webhook-signature API | `PayPalClient.verify_webhook` | |
 | Claude's guesses about template mail are shown but never screen out a brand on their own | `policy.screen` | `test_model_template_guesses_alone_never_screen_out_a_brand` |
 | Mock taste data never reaches a counterparty's inbox | `desk._facts` | `test_mock_taste_never_reaches_a_counterparty` |
+| An unpaid invoice gets exactly one PayPal reminder after its terms, then goes to the creator; a quiet quote gets exactly one nudge | `desk.follow_up` | `test_unpaid_invoice_gets_exactly_one_reminder_then_escalates`, `test_quiet_quote_gets_one_nudge_only` |
+| A brand that withdraws after being invoiced has its PayPal invoice cancelled | `desk.on_reply` | `test_withdrawal_after_invoice_cancels_it` |
 
 The last two came from live runs, not from planning. On one run Claude flagged "Hello," as evidence of a template and the screen threw out a paying brand. On another, a draft told a brand about its audience's tastes using placeholder data.
 
 ## PayPal
 
-Deal Desk uses the **Invoicing v2 API** in the PayPal sandbox: OAuth client credentials, create draft, send, read status, record payment, and `INVOICING.INVOICE.PAID` webhooks verified through `/v1/notifications/verify-webhook-signature`. See `dealdesk/paypal.py`.
+Deal Desk uses the **Invoicing v2 API** in the PayPal sandbox: OAuth client credentials, create draft, send, read status, remind, cancel, record payment, and `INVOICING.INVOICE.PAID` webhooks verified through `/v1/notifications/verify-webhook-signature`. See `dealdesk/paypal.py`.
 
 An invoice, rather than a checkout button, because the payer here is a business. It goes to an accounts payable address, it carries an invoice number and a line item a finance team can file, and it can be paid by PayPal balance or card.
 
@@ -100,7 +105,7 @@ The hosted version runs in replay mode (`index.py`). Every sample email and ever
 python -m pytest -q
 ```
 
-32 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, the taste maths, the HTTP API, and the public demo's spending cap. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
+35 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, the taste maths, the HTTP API, and the public demo's spending cap. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
 
 `scripts_eval.py` runs the samples through the live model several times and reports agreement with the expected outcome.
 

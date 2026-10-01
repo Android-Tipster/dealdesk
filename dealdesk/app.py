@@ -154,6 +154,13 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
         except ValueError as e:
             raise HTTPException(409, str(e))
 
+    @app.post("/api/follow-up")
+    def follow_up(days_ahead: float = 0):
+        """Run the follow-up pass. `days_ahead` lets the demo show what happens
+        after a quiet week without waiting one."""
+        import time as _t
+        return {"actions": desk.follow_up(_t.time() + days_ahead * 86400)}
+
     @app.post("/api/poll")
     def poll():
         return {"paid": [d.id for d in desk.poll_invoices() if d]}
