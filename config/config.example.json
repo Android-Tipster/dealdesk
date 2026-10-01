@@ -1,0 +1,6 @@
+{
+  "anthropic": {"api_key": "sk-ant-..."},
+  "paypal": {"client_id": "sandbox client id", "secret": "sandbox secret", "webhook_id": "optional, from the sandbox app's webhook settings", "test_recipient": "a sandbox personal account email"},
+  "qloo": {"api_key": "hackathon key"},
+  "autopilot_invoice": true
+}

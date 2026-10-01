@@ -1,0 +1,19 @@
+{
+  "creator_name": "Maya Chen",
+  "channel_name": "The Frame Rate",
+  "channel_url": "https://theframerate.example",
+  "audience": "28,000 independent video editors and motion designers; weekly newsletter plus a tutorials blog",
+  "currency": "USD",
+  "products": {
+    "sponsored_post": {"label": "Sponsored tutorial or article", "target": 450, "floor": 350, "step": 50, "followed_link_surcharge": 150},
+    "link_insertion": {"label": "Link added to an existing article", "target": 180, "floor": 140, "step": 30, "followed_link_surcharge": 120},
+    "newsletter_slot": {"label": "Sponsor slot in the weekly newsletter", "target": 300, "floor": 240, "step": 40, "followed_link_surcharge": 0},
+    "dedicated_review": {"label": "Hands-on review", "target": 650, "floor": 500, "step": 75, "followed_link_surcharge": 150}
+  },
+  "blocked_categories": ["casino", "gambling", "betting", "crypto", "payday loan", "adult"],
+  "max_concessions": 1,
+  "followed_links_allowed": true,
+  "invoice_terms_days": 7,
+  "signature": "Maya\nThe Frame Rate",
+  "taste_seeds": ["DaVinci Resolve", "Adobe After Effects", "Blackmagic Design", "Everything Everywhere All at Once", "Corridor Crew", "Wes Anderson"]
+}

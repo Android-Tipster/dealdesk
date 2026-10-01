@@ -1,0 +1,207 @@
+{
+ "passed": 18,
+ "total": 18,
+ "runs": 3,
+ "seconds": 139,
+ "guard_retries": 0,
+ "rows": [
+  {
+   "run": 0,
+   "sample": "01-direct-brand.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "sponsored_post",
+   "quote": 450.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 0,
+   "sample": "02-newsletter-slot.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "newsletter_slot",
+   "quote": 300.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 0,
+   "sample": "03-guest-post-blast.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "sponsored_post",
+   "quote": null,
+   "reason": "link broker reselling to unnamed clients",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 0,
+   "sample": "04-casino.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "sponsored_post",
+   "quote": null,
+   "reason": "blocked category: casino",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 0,
+   "sample": "05-agency-no-client.json",
+   "ok": true,
+   "stage": "needs_human",
+   "deliverable": "link_insertion",
+   "quote": null,
+   "reason": "agency has not named the client",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 0,
+   "sample": "06-review-followed.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "dedicated_review",
+   "quote": 800,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "01-direct-brand.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "sponsored_post",
+   "quote": 450.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "02-newsletter-slot.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "newsletter_slot",
+   "quote": 300.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "03-guest-post-blast.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "sponsored_post",
+   "quote": null,
+   "reason": "link broker reselling to unnamed clients",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "04-casino.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "sponsored_post",
+   "quote": null,
+   "reason": "blocked category: casino",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "05-agency-no-client.json",
+   "ok": true,
+   "stage": "needs_human",
+   "deliverable": "link_insertion",
+   "quote": null,
+   "reason": "agency has not named the client",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 1,
+   "sample": "06-review-followed.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "dedicated_review",
+   "quote": 800,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "01-direct-brand.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "sponsored_post",
+   "quote": 450.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "02-newsletter-slot.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "newsletter_slot",
+   "quote": 300.0,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "03-guest-post-blast.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "link_insertion",
+   "quote": null,
+   "reason": "link broker reselling to unnamed clients",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "04-casino.json",
+   "ok": true,
+   "stage": "screened_out",
+   "deliverable": "sponsored_post",
+   "quote": null,
+   "reason": "blocked category: casino",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "05-agency-no-client.json",
+   "ok": true,
+   "stage": "needs_human",
+   "deliverable": "link_insertion",
+   "quote": null,
+   "reason": "agency has not named the client",
+   "draft_problems": [],
+   "retries": 0
+  },
+  {
+   "run": 2,
+   "sample": "06-review-followed.json",
+   "ok": true,
+   "stage": "quoted",
+   "deliverable": "dedicated_review",
+   "quote": 800,
+   "reason": "qualified",
+   "draft_problems": [],
+   "retries": 0
+  }
+ ]
+}
