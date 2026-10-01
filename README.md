@@ -65,6 +65,12 @@ Creators know what their audience loves, not the demographic segments brands buy
 
 See `dealdesk/taste.py`.
 
+## Try it
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Android-Tipster/dealdesk)
+
+The deploy needs no keys: without one it runs in replay mode (below).
+
 ## Run it
 
 ```bash
