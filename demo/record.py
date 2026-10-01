@@ -194,13 +194,33 @@ def s_pay(page):
     page.wait_for_timeout(3500)
 
 
+def p_chase(_):
+    i = deal_id("Lumatone")
+    d = api(f"/api/deals/{i}")
+    if d["draft_body"] and not d["draft_problems"]:
+        api(f"/api/deals/{i}/approve", {})
+    text = next(x["text"] for x in api(f"/api/deals/{i}/presets") if x["label"].startswith("Accept"))
+    api(f"/api/deals/{i}/reply", {"body": text})
+
+
+def s_chase(page):
+    page.goto(BASE)
+    page.wait_for_timeout(1000)
+    page.get_by_role("button", name="Simulate a quiet week").click()
+    page.wait_for_timeout(2500)
+    page.locator(".ag-row", has_text="Lumatone").first.click()
+    page.wait_for_timeout(1000)
+    page.locator("#drawer .tl").evaluate("e => e.scrollIntoView({block: 'end', behavior: 'smooth'})")
+    page.wait_for_timeout(4000)
+
+
 def s_pitch(page):
     page.goto(BASE)
     page.wait_for_timeout(1000)
     page.locator(".plink").first.click()
     page.wait_for_selector("#pitchout .draft", timeout=180000)
     page.locator("#pitchout").evaluate("e => e.scrollIntoView({block: 'center', behavior: 'smooth'})")
-    page.wait_for_timeout(3500)
+    page.wait_for_timeout(7000)
 
 
 def s_close(page):
@@ -234,11 +254,14 @@ SCENES = [
      "When PayPal reports the invoice paid, by webhook or by polling, the agent does not take the notification's word. "
      "It reads the invoice back from PayPal first. A forged paid event changes nothing. Then it drafts the receipt and "
      "the delivery checklist."),
+    ("chase", p_chase, s_chase,
+     "Deals also stall after the yes. A week passes and Lumatone has not paid. The agent sends one PayPal reminder "
+     "through the Invoicing API, never two, and at twice the payment terms it hands the deal back to the creator."),
     ("pitch", None, s_pitch,
      "It also works outbound. From the audience's taste profile, Qloo surfaces brands this audience over-indexes on "
      "that have never written in, and the agent drafts a pitch built on the measured overlap."),
     ("close", None, s_close,
-     "Twenty six tests cover the rails. Across three live runs, the agent handled all eighteen sample emails correctly. "
+     "Thirty six tests cover the rails. Across three live runs, the agent handled all eighteen sample emails correctly. "
      "Deal Desk: the AI reads and writes, the code decides, and PayPal gets you paid."),
 ]
 
