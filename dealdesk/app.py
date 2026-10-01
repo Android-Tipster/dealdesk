@@ -9,10 +9,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .desk import Desk
-from .llm import ClaudeLLM
+from .llm import BudgetExceeded, ClaudeLLM, ReplayLLM
 from .paypal import MockPayPal, make_client, paid_invoice_id
 from .policy import Policy
 from .store import Store
@@ -42,9 +42,20 @@ def build_desk(cfg: dict[str, Any] | None = None, llm=None, db: str | None = Non
     policy_path = ROOT / "config" / ("policy.json" if (ROOT / "config" / "policy.json").exists() else "policy.example.json")
     policy = Policy.load(policy_path)
     taste_api = make_taste(cfg)
+    if llm is None:
+        key = (cfg.get("anthropic") or {}).get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+        llm = ClaudeLLM(key) if key else None
+        cassette = os.environ.get("DEALDESK_CASSETTE")
+        if cassette:
+            llm = ReplayLLM(llm, cassette, int(os.environ.get("DEALDESK_DAILY_LIVE_CALLS", "60")),
+                            record=os.environ.get("DEALDESK_RECORD") == "1")
+        if llm is None:
+            raise RuntimeError("set ANTHROPIC_API_KEY, or DEALDESK_CASSETTE for replay-only mode")
+    if db is None:
+        db = os.environ.get("DEALDESK_DB") or ("/tmp/dealdesk.db" if os.environ.get("VERCEL") else str(ROOT / "dealdesk.db"))
     return Desk(
-        store=Store(db or str(ROOT / "dealdesk.db")),
-        llm=llm or ClaudeLLM((cfg.get("anthropic") or {}).get("api_key")),
+        store=Store(db),
+        llm=llm,
         policy=policy,
         paypal=make_client(cfg),
         taste=TasteProfile(taste_api, policy.taste_seeds),
@@ -53,21 +64,21 @@ def build_desk(cfg: dict[str, Any] | None = None, llm=None, db: str | None = Non
 
 
 class Inbound(BaseModel):
-    sender: str
-    subject: str
-    body: str
+    sender: str = Field(max_length=300)
+    subject: str = Field(max_length=300)
+    body: str = Field(min_length=1, max_length=6000)
 
 
 class Reply(BaseModel):
-    body: str
+    body: str = Field(min_length=1, max_length=4000)
 
 
 class Deliver(BaseModel):
-    url: str
+    url: str = Field(max_length=500)
 
 
 class BrandQ(BaseModel):
-    brand: str
+    brand: str = Field(min_length=1, max_length=120)
 
 
 def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> FastAPI:
@@ -75,6 +86,12 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
     desk = desk or build_desk(cfg)
     app = FastAPI(title="Deal Desk")
     app.state.desk = desk
+
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(BudgetExceeded)
+    async def _budget(_, exc: BudgetExceeded):
+        return JSONResponse(status_code=429, content={"detail": str(exc)})
 
     def _deal(i: int):
         d = desk.store.get(i)
@@ -91,6 +108,7 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
         p = desk.policy
         return {"paypal": desk.paypal.mode, "taste": desk.taste.api.mode if desk.taste else "off",
                 "model": getattr(desk.llm, "model", "fake"), "creator": p.creator_name, "channel": p.channel_name,
+                "channel_url": p.channel_url, "replay": type(desk.llm).__name__ == "ReplayLLM",
                 "audience": p.audience, "currency": p.currency, "autopilot_invoice": desk.autopilot_invoice,
                 "products": {k: {"label": v.label, "target": v.target, "floor": v.floor} for k, v in p.products.items()},
                 "blocked": p.blocked_categories, "seeds": p.taste_seeds}
@@ -111,6 +129,10 @@ def create_app(desk: Desk | None = None, cfg: dict[str, Any] | None = None) -> F
     def reply(i: int, m: Reply):
         _deal(i)
         return asdict(desk.on_reply(i, m.body))
+
+    @app.get("/api/deals/{i}/presets")
+    def presets(i: int):
+        return desk.presets(_deal(i))
 
     @app.post("/api/deals/{i}/approve")
     def approve(i: int):

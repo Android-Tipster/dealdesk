@@ -292,3 +292,23 @@ class Desk:
                 "problems": problems, "sendable": sendable,
                 "why_not_sendable": None if sendable else ("mock taste data" if f.source != "qloo" else
                                                            "weak fit" if f.verdict not in ("strong", "plausible") else "; ".join(problems))}
+
+    # ---------------------------------------------------------------- demo
+    @staticmethod
+    def presets(d: Deal) -> list[dict]:
+        """One-click brand replies for the demo. Text depends only on deal state,
+        so the hosted demo can replay recorded model output for every path."""
+        if d.stage not in ("quoted", "negotiating") or not d.quote:
+            return []
+        domain = d.sender_email.split("@")[-1] if "@" in d.sender_email else "brand.example"
+        low = int(round(d.quote * 0.65 / 10.0) * 10)
+        out = []
+        if d.stage == "quoted":
+            out.append({"label": f"Counter at ${low}",
+                        "text": f"Thanks, we like the idea. Budget is tight this quarter though. Could you do ${low}?"})
+        out.append({"label": f"Accept ${d.quote:.0f}",
+                    "text": f"That works for us at ${d.quote:.0f}. Please send the invoice to accounts@{domain}."})
+        out.append({"label": "Ask a question",
+                    "text": "Before we commit, could you share roughly how many clicks a sponsored post usually gets?"})
+        return out
+

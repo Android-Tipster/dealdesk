@@ -286,3 +286,17 @@ def test_pitch_with_mock_taste_is_never_sendable(tmp_path):
     desk = make_desk(tmp_path, FakeLLM(inquiry()))
     out = desk.pitch("Epidemic Sound")
     assert out["fit"]["source"] == "mock" and out["sendable"] is False and out["why_not_sendable"] == "mock taste data"
+
+
+def test_replay_serves_recorded_output_and_caps_live_calls(tmp_path):
+    from dealdesk.llm import BudgetExceeded, ReplayLLM
+    inner = FakeLLM(inquiry())
+    cas = str(tmp_path / "c.json")
+    rec = ReplayLLM(inner, cas, daily_cap=1, record=True)
+    a = rec.read_inquiry("email one")
+    with pytest.raises(BudgetExceeded):
+        rec.read_inquiry("email two")
+    replay = ReplayLLM(None, cas, daily_cap=0)
+    assert replay.read_inquiry("email one") == a
+    with pytest.raises(BudgetExceeded):
+        replay.read_inquiry("unseen")

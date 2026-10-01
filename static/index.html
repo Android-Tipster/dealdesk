@@ -87,6 +87,8 @@ textarea{min-height:90px;resize:vertical}
 #modal{position:fixed;inset:0;background:rgba(20,20,30,.35);display:none;place-items:center;z-index:30}
 #modal.open{display:grid}
 #modal .card{width:min(560px,92vw);padding:20px;display:grid;gap:10px}
+.chip-btn{font-size:12.5px;padding:6px 10px;border-radius:999px;background:#f2f0eb;border-color:#e6e3dc}
+.chip-btn:hover{background:var(--accent-soft);border-color:#d5defd}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1b1d22;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;z-index:40}
 .toast.show{opacity:1}
 </style>
@@ -155,7 +157,7 @@ const $ = s => document.querySelector(s);
 const money = v => v == null ? "" : "$" + Number(v).toLocaleString(undefined,{maximumFractionDigits:0});
 const STAGE = {new:"New",quoted:"Quoted",negotiating:"Negotiating",agreed:"Agreed",invoiced:"Invoiced",paid:"Paid",delivered:"Delivered",screened_out:"Screened out",declined:"Declined",needs_human:"Needs you"};
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let STATUS = {}, DEALS = [], grid, openId = null;
+let STATUS = {}, DEALS = [], grid, openId = null, RENDERED = null;
 
 function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2600)}
 async function api(path, opts={}){
@@ -187,7 +189,7 @@ async function refresh(){
   $("#k-inv").textContent = money(sum(["agreed","invoiced"]));
   $("#k-paid").textContent = money(sum(["paid","delivered"]));
   $("#k-scr").textContent = DEALS.filter(d=>d.stage==="screened_out").length;
-  if(openId) renderDrawer(DEALS.find(d=>d.id===openId));
+  if(openId){ const d=DEALS.find(x=>x.id===openId); if(d && d.updated!==RENDERED) renderDrawer(d); }
 }
 
 async function boot(){
@@ -249,6 +251,8 @@ function closeDeal(){ openId=null; $("#drawer").classList.remove("open"); }
 
 function renderDrawer(d){
   if(!d) return;
+  RENDERED = d.updated;
+  setTimeout(()=>loadPresets(d.id),0);
   const canInvoice = d.stage==="agreed";
   const canDeliver = d.stage==="paid";
   const payLink = d.payer_url ? `<a href="${esc(d.payer_url)}" target="_blank"><button class="pp">Open PayPal invoice</button></a>` : "";
@@ -271,15 +275,27 @@ function renderDrawer(d){
        <div class="row" style="margin-top:8px"><button class="primary" ${d.draft_problems?.length?"disabled":""} onclick="act('approve')">Approve and send</button></div></div>`:""}
     <div class="row">
       ${canInvoice?`<button class="pp" onclick="act('invoice')">Send PayPal invoice</button>`:""}
-      ${canDeliver?`<input id="liveurl" placeholder="Live URL of the placement" style="flex:1"><button class="primary" onclick="deliver()">Mark delivered</button>`:""}
+      ${canDeliver?`<input id="liveurl" placeholder="Live URL of the placement" value="${esc(defaultLiveUrl(d))}" style="flex:1"><button class="primary" onclick="deliver()">Mark delivered</button>`:""}
     </div>
-    ${["quoted","negotiating","needs_human","invoiced"].includes(d.stage)?`<div class="sec"><h4>Their reply</h4><textarea id="reply" placeholder="Paste the brand's reply here"></textarea>
+    ${["quoted","negotiating","needs_human","invoiced"].includes(d.stage)?`<div class="sec"><h4>Their reply</h4><div class="row" id="presets" style="margin-bottom:8px"></div><textarea id="reply" placeholder="Paste the brand's reply here, or pick a sample reply above"></textarea>
        <div class="row" style="margin-top:8px"><button onclick="reply()">Run the agent on this reply</button></div></div>`:""}
     <div class="sec"><h4>Thread</h4>${d.thread.map(m=>`<div class="msg ${m.from==="us"?"us":""}" style="margin-bottom:8px">${m.subject?`<b>${esc(m.subject)}</b>\n`:""}${esc(m.body)}</div>`).join("")}</div>
     <div class="sec"><h4>What the agent did</h4><div class="tl">${d.events.map(e=>`<div><small>${new Date(e.t*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</small><b>${esc(e.kind)}</b> ${esc(e.text)}</div>`).join("")}</div></div>
   </div>`;
 }
 
+function defaultLiveUrl(d){
+  const slug=(d.brand||"sponsor").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  return (STATUS.channel_url||"https://example.com").replace(/\/$/,"") + "/sponsored/" + slug;
+}
+async function loadPresets(id){
+  const box=$("#presets"); if(!box) return;
+  try{
+    const ps=await api(`/api/deals/${id}/presets`);
+    box.innerHTML = ps.map((p,i)=>`<button class="chip-btn" data-i="${i}">${esc(p.label)}</button>`).join("");
+    box.querySelectorAll(".chip-btn").forEach(b=>b.onclick=()=>{ $("#reply").value=ps[+b.dataset.i].text; reply(); });
+  }catch(e){}
+}
 async function act(what){
   try{ await api(`/api/deals/${openId}/${what}`,{method:"POST"}); toast(what==="invoice"?"PayPal invoice sent":"Sent"); }
   catch(e){ toast(e.message); }

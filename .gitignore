@@ -6,3 +6,5 @@ config/policy.json
 server.log
 eval.log
 .pytest_cache/
+demo/*.mp4
+demo.log

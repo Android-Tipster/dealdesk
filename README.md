@@ -84,19 +84,27 @@ python -m dealdesk.verify
 
 Your own rate card goes in `config/policy.json` (start from `config/policy.example.json`).
 
+## The public demo
+
+The hosted version runs in replay mode (`index.py`). Every sample email and every one-click reply in the drawer was recorded once through the live model (`scripts/record_cassette.py`), so those paths are instant and free. Anything new, such as an email you paste yourself, goes to the live model under a small daily cap, and past the cap the API answers 429 with a plain message instead of spending.
+
 ## Tests
 
 ```bash
 python -m pytest -q
 ```
 
-25 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, and the taste maths. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
+32 tests cover the negotiation ladder, the invoice gate, screening, the draft guard, the full quote-to-delivered path, webhook parsing, the PayPal request bodies, the taste maths, the HTTP API, and the public demo's spending cap. The safety tests were checked by deliberately breaking the floor check and the payment re-read and confirming the suite fails.
 
 `scripts_eval.py` runs the samples through the live model several times and reports agreement with the expected outcome.
 
 ## Stack
 
 Python, FastAPI, SQLite, Claude (`claude-opus-5-5`, structured outputs), PayPal Invoicing v2, Qloo Taste AI, AG Grid Community for the pipeline board.
+
+## Credits
+
+Built by Noah Albert with Claude Code. The business rules, numbers and failure cases come from running the sponsorship inbox it is modelled on.
 
 ## License
 
